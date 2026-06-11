@@ -1,13 +1,14 @@
 {
   "name": "CouplesBudget",
   "short_name": "CouplesBudget",
-  "description": "Smart budget app built for couples",
+  "description": "Build wealth together — the smart budget app for couples",
   "start_url": "/dashboard",
   "display": "standalone",
-  "background_color": "#0f172a",
-  "theme_color": "#6366f1",
+  "background_color": "#050C18",
+  "theme_color": "#7C3AED",
   "orientation": "portrait-primary",
   "icons": [
+    { "src": "/icon.svg", "type": "image/svg+xml", "purpose": "any maskable" },
     {
       "src": "/icons/icon-72x72.png",
       "sizes": "72x72",

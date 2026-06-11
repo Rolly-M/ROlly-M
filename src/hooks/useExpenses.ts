@@ -2,10 +2,11 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Expense } from '@/types'
+import { Expense, ExpenseCategory } from '@/types'
 
 export function useExpenses(householdId: string | null | undefined, month?: number, year?: number) {
   const [expenses, setExpenses] = useState<Expense[]>([])
+  const [categories, setCategories] = useState<ExpenseCategory[]>([])
   const [loading, setLoading] = useState(true)
   const supabase = createClient()
 
@@ -14,6 +15,14 @@ export function useExpenses(householdId: string | null | undefined, month?: numb
       setLoading(false)
       return
     }
+    // Fetch categories (default + household custom)
+    const { data: catData } = await supabase
+      .from('expense_categories')
+      .select('*')
+      .or(`is_default.eq.true,household_id.eq.${householdId}`)
+      .order('name')
+    setCategories(catData ?? [])
+
     let query = supabase
       .from('expenses')
       .select('*, category:expense_categories(*)')
@@ -56,5 +65,5 @@ export function useExpenses(householdId: string | null | undefined, month?: numb
     return { error }
   }
 
-  return { expenses, loading, totalExpenses, expensesByCategory, addExpense, deleteExpense, refetch: fetchExpenses }
+  return { expenses, categories, loading, totalExpenses, expensesByCategory, addExpense, deleteExpense, refetch: fetchExpenses }
 }

@@ -310,3 +310,125 @@ CREATE POLICY "Members can add contributions" ON goal_contributions
 
 CREATE POLICY "Owner can delete contributions" ON goal_contributions
   FOR DELETE USING (contributed_by = auth.uid());
+
+-- ============================================
+-- RECURRING EXPENSES
+-- ============================================
+CREATE TABLE IF NOT EXISTS recurring_expenses (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  household_id UUID NOT NULL REFERENCES households(id) ON DELETE CASCADE,
+  created_by UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  category_id UUID REFERENCES expense_categories(id),
+  amount NUMERIC(12, 2) NOT NULL DEFAULT 0,
+  currency TEXT NOT NULL DEFAULT 'USD',
+  description TEXT NOT NULL,
+  frequency TEXT NOT NULL DEFAULT 'monthly' CHECK (frequency IN ('daily','weekly','biweekly','monthly','quarterly','yearly')),
+  next_date DATE NOT NULL DEFAULT CURRENT_DATE,
+  end_date DATE,
+  is_active BOOLEAN DEFAULT TRUE,
+  notes TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE recurring_expenses ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Household members can view recurring" ON recurring_expenses
+  FOR SELECT USING (household_id = get_user_household_id(auth.uid()));
+CREATE POLICY "Members can add recurring" ON recurring_expenses
+  FOR INSERT WITH CHECK (household_id = get_user_household_id(auth.uid()) AND created_by = auth.uid());
+CREATE POLICY "Owner can update recurring" ON recurring_expenses
+  FOR UPDATE USING (created_by = auth.uid());
+CREATE POLICY "Owner can delete recurring" ON recurring_expenses
+  FOR DELETE USING (created_by = auth.uid());
+
+CREATE INDEX IF NOT EXISTS idx_recurring_household ON recurring_expenses(household_id, next_date);
+
+-- ============================================
+-- NET WORTH: ASSETS & LIABILITIES
+-- ============================================
+CREATE TABLE IF NOT EXISTS assets (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  household_id UUID NOT NULL REFERENCES households(id) ON DELETE CASCADE,
+  created_by UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  type TEXT NOT NULL DEFAULT 'other' CHECK (type IN ('savings','investment','property','vehicle','crypto','other')),
+  value NUMERIC(14, 2) NOT NULL DEFAULT 0,
+  currency TEXT NOT NULL DEFAULT 'USD',
+  as_of_date DATE NOT NULL DEFAULT CURRENT_DATE,
+  notes TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS liabilities (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  household_id UUID NOT NULL REFERENCES households(id) ON DELETE CASCADE,
+  created_by UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  type TEXT NOT NULL DEFAULT 'other' CHECK (type IN ('mortgage','car_loan','student_loan','credit_card','personal_loan','other')),
+  balance NUMERIC(14, 2) NOT NULL DEFAULT 0,
+  currency TEXT NOT NULL DEFAULT 'USD',
+  as_of_date DATE NOT NULL DEFAULT CURRENT_DATE,
+  notes TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE assets ENABLE ROW LEVEL SECURITY;
+ALTER TABLE liabilities ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Household members can view assets" ON assets
+  FOR SELECT USING (household_id = get_user_household_id(auth.uid()));
+CREATE POLICY "Members can manage assets" ON assets
+  FOR ALL USING (household_id = get_user_household_id(auth.uid()));
+
+CREATE POLICY "Household members can view liabilities" ON liabilities
+  FOR SELECT USING (household_id = get_user_household_id(auth.uid()));
+CREATE POLICY "Members can manage liabilities" ON liabilities
+  FOR ALL USING (household_id = get_user_household_id(auth.uid()));
+
+-- ============================================
+-- NOTIFICATION PREFERENCES
+-- ============================================
+CREATE TABLE IF NOT EXISTS notification_preferences (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID UNIQUE NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  over_budget BOOLEAN DEFAULT TRUE,
+  goal_milestone BOOLEAN DEFAULT TRUE,
+  large_expense BOOLEAN DEFAULT TRUE,
+  large_expense_threshold NUMERIC(10,2) DEFAULT 500,
+  monthly_summary BOOLEAN DEFAULT TRUE,
+  partner_activity BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE notification_preferences ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users manage own notification prefs" ON notification_preferences
+  FOR ALL USING (user_id = auth.uid());
+
+-- Auto-create notification prefs on user signup
+CREATE OR REPLACE FUNCTION public.handle_new_notification_prefs()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  INSERT INTO public.notification_preferences (user_id)
+  VALUES (NEW.id)
+  ON CONFLICT (user_id) DO NOTHING;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS on_profile_created_notif ON public.profiles;
+CREATE TRIGGER on_profile_created_notif
+  AFTER INSERT ON public.profiles
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_notification_prefs();
+
+-- ============================================
+-- USER LANGUAGE PREFERENCE (added to profiles)
+-- ============================================
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS language TEXT DEFAULT 'en' CHECK (language IN ('en', 'fr', 'es'));
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS bank_connected BOOLEAN DEFAULT FALSE;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS plaid_access_token TEXT;
